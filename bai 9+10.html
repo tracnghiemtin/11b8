@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Bài 9+10 — Làm bài, Reset & Xem đáp án tức thì</title>
+<meta name="theme-color" content="#09090d" />
+<style>
+:root{color-scheme:dark;--bg:#09090d;--panel:#13131a;--red:#f33f62;--line:#3a2230;--text:#faf5f6;--muted:#bfb0b8}*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+body{display:flex;flex-direction:column;min-height:100dvh}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:linear-gradient(90deg,#180c13,#0d0c11);border-bottom:1px solid var(--line);padding:12px 18px;min-height:74px}
+h1{font-size:17px;letter-spacing:.02em;margin:0}h1 strong{color:#ff5b7a}header p{font-size:12px;color:var(--muted);margin:2px 0 0}
+.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.btn{border:1px solid #633047;border-radius:11px;background:#23141e;color:var(--text);padding:10px 13px;text-decoration:none;font-weight:750;cursor:pointer}.btn.primary{background:linear-gradient(125deg,#b21c3b,#681527);border-color:#f45176;box-shadow:0 0 20px #bf12373d}.btn:disabled,.btn[aria-disabled=true]{opacity:.45;pointer-events:none}.btn:hover{filter:brightness(1.15)}
+#message{padding:18px;color:var(--muted);text-align:center;background:var(--panel);border-bottom:1px solid var(--line)}#message.error{color:#ffa5b4}
+#app{width:100%;flex:1;min-height:520px;border:0;background:#09090c;display:none}#app.visible{display:block}
+@media(max-width:600px){header{padding:11px}h1{font-size:15px}.actions{width:100%}.actions>*{flex:1;text-align:center}}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>🧬 <strong>BÀI 9+10</strong> · HỌC & LÀM BÀI</h1><p>Chọn đáp án thấy kết quả ngay · Reset làm lại · Giữ nguyên 190 câu và ảnh sách</p></div>
+  <div class="actions"><a id="download" class="btn primary" aria-disabled="true">↓ Tải file đầy đủ dùng offline</a><button class="btn" id="retry" type="button">↻ Tải lại</button></div>
+</header>
+<div id="message" role="status" aria-live="polite">Đang mở bài tập gốc từ GitHub…</div>
+<iframe id="app" title="Bài tập Sinh học 11 có nút làm lại"></iframe>
+<script>
+'use strict';
+const SOURCE = 'https://raw.githubusercontent.com/tracnghiemtin/11b8/main/bai9%2B10%20%281%29.html';
+const $ = s => document.querySelector(s);
+let currentURL = null;
+const injections = {
+ nutrition: `<script>
+window.restartThisQuiz = function () {
+ const ids = selectedIds.length ? [...selectedIds] : all.map(q => q.id);
+ ids.forEach(id => { delete state.answers[id]; delete state.checked[id]; });
+ selectedIds = ids; idx = 0; examFinished = false; mode = 'practice'; save();
+ navigate('quiz'); window.scrollTo({top:0,behavior:'smooth'});
+};
+<\/script>`,
+ circulation: `<script>
+window.restartThisQuiz = function () {
+ clearInterval(tick);
+ if (exam && exam.pool && exam.pool.length) {
+  exam = {...exam,index:0,selected:{},started:Date.now(),submitted:false};
+  showTab('quiz');
+  $('quizSetup').style.display='none'; $('quizActive').style.display='block'; $('quizResult').style.display='none';
+  tick=setInterval(updateTimer,700); renderQuestion();
+ } else { showTab('quiz'); launchQuiz(); }
+ window.scrollTo({top:0,behavior:'smooth'});
+};
+<\/script>`
+};
+function decode64(b64){
+ const raw=atob(b64), bytes=new Uint8Array(raw.length);
+ for(let i=0;i<raw.length;i++) bytes[i]=raw.charCodeAt(i);
+ return new TextDecoder().decode(bytes);
+}
+function encode64(str){
+ const b=new TextEncoder().encode(str), parts=[];
+ for(let i=0;i<b.length;i+=32768) parts.push(String.fromCharCode(...b.subarray(i,i+32768)));
+ return btoa(parts.join(''));
+}
+function once(text,search,replacement){
+ if(!text.includes(search))throw new Error('Không tìm thấy thành phần cần chỉnh: '+search.slice(0,70));
+ return text.replace(search,replacement);
+}
+function patchPayload(root,key){
+ const begin=root.indexOf(key+': "');
+ if(begin===-1)throw new Error('Thiếu nội dung bài '+key);
+ const start=begin+key.length+3, end=root.indexOf('"',start);
+ if(end===-1) throw new Error('Dữ liệu bài học chưa hoàn chỉnh');
+ let page=decode64(root.slice(start,end));
+ if(key==='nutrition'){
+  const b='<button class="btn small ghost" id="switchMode">';
+  page=once(page,b,'<button class="btn small ghost" type="button" onclick="window.restartThisQuiz()">↻ Làm lại</button>'+b);
+ }else{
+  const b='<button class="btn sm ghost" onclick="abortQuiz()">';
+  page=once(page,b,'<button class="btn sm ghost" type="button" onclick="window.restartThisQuiz()">↻ Làm lại</button>'+b);
+  const result='<button class="btn primary" onclick="relaunch()">↻ Tạo đề mới</button>';
+  page=once(page,result,'<button class="btn" onclick="window.restartThisQuiz()">↻ Làm lại đề này</button>'+result);
+ }
+ page=once(page,'</body>',injections[key]+'</body>');
+ const data=encode64(page);
+ return root.slice(0,start)+data+root.slice(end);
+}
+function patch(original){
+ let html=patchPayload(patchPayload(original,'nutrition'),'circulation');
+ const css=`
+.reset-all{border:1px solid #ff5874;border-radius:12px;padding:11px 15px;background:linear-gradient(135deg,#b01b3d,#5c1224);color:#fff;font:750 12px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer;box-shadow:0 0 20px #e1265044;white-space:nowrap;transition:transform .15s,filter .15s}
+.reset-all:hover{transform:translateY(-1px);filter:brightness(1.2)}.reset-all:focus-visible{outline:3px solid #ffafb9;outline-offset:3px}
+@media(max-width:720px){.reset-all{width:100%;grid-column:1 / -1}}
+body{height:100dvh;display:flex;flex-direction:column}.header{flex:0 0 auto}.workspace{height:auto!important;min-height:360px;flex:1 1 auto;overflow:hidden}\n`;
+ html=once(html,'</style>',css+'</style>');
+ html=once(html,'</nav>\n  <div class="status">','</nav>\n  <button class="reset-all" id="restartCurrent" type="button" onclick="restartActiveLesson()" title="Làm lại bài đang mở từ câu đầu">↻ RESET · LÀM BÀI LẠI</button>\n  <div class="status">');
+ const parentJS=`
+function restartActiveLesson(){
+ const key=document.getElementById('tab-nutrition').classList.contains('active')?'nutrition':'circulation';
+ if(!loaded[key])openLesson(key);
+ const frame=document.getElementById('frame-'+key);
+ const run=()=>{
+   try{const fn=frame.contentWindow&&frame.contentWindow.restartThisQuiz;
+     if(typeof fn!=='function')throw new Error('Bài chưa tải xong'); fn();
+   }catch(err){console.error('Restart failed',err);alert('Chưa thể làm lại. Hãy chờ bài tải xong rồi thử lại.');}
+ };
+ if(frame.contentDocument&&frame.contentDocument.readyState==='complete')run();
+ else frame.addEventListener('load',run,{once:true});
+}
+`;
+ html=once(html,'openLesson("nutrition");',parentJS+'\nopenLesson("nutrition");');
+ return html;
+}
+async function load(){
+ const msg=$('#message');
+ msg.className='';msg.textContent='Đang lấy câu hỏi và hình ảnh sách từ GitHub…';msg.style.display='block';
+ $('#app').classList.remove('visible');$('#download').setAttribute('aria-disabled','true');
+ try{
+  const resp=await fetch(SOURCE,{cache:'no-store'});
+  if(!resp.ok)throw new Error('HTTP '+resp.status);
+  const source=await resp.text();
+  const html=patch(source);
+  const file=new Blob([html],{type:'text/html;charset=utf-8'});
+  if(currentURL)URL.revokeObjectURL(currentURL);
+  currentURL=URL.createObjectURL(file);
+  const link=$('#download');link.href=currentURL;link.download='Bai_9_10_Reset_Dap_An_Tuc_Thi.html';link.setAttribute('aria-disabled','false');
+  const frame=$('#app');frame.srcdoc=html;frame.classList.add('visible');
+  msg.textContent='✓ Sẵn sàng! Có thể làm bài bên dưới hoặc tải bản đầy đủ để dùng không cần Internet.';
+  setTimeout(()=>{msg.style.display='none';},5500);
+ }catch(e){
+  console.error(e);msg.className='error';msg.textContent='Không mở được bài từ GitHub: '+e.message+'. Hãy kiểm tra Internet và bấm “Tải lại”.';
+ }
+}
+$('#retry').addEventListener('click',load);
+load();
+</script>
+</body>
+</html>
